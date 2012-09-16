@@ -1,5 +1,37 @@
 #!/usr/bin/env perl
 
+## svn-clean-mergeinfo.pl is a command line tool to consolidate Subversion
+## svn:mergeinfo properties on a working copy.
+
+## Copyright (C) 2012  Yves Martin  ( ymartin59 _at_ free _dot_ fr )
+
+# Here are license details
+sub license() {
+    print <<EOF;
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License version 3
+  as published by the Free Software Foundation.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You can get a copy of the GNU General Public License
+  at http://www.gnu.org/licenses/gpl.html
+EOF
+}
+
+sub banner() {
+    print <<EOF;
+ Copyright (C) 2012  Yves Martin
+ This program comes with ABSOLUTELY NO WARRANTY.
+ This is free software, and you are welcome to redistribute it
+ under certain conditions. See LICENSE file for details.
+
+EOF
+}
+
 use strict;
 use warnings;
 use File::Temp;
@@ -232,6 +264,7 @@ sub writeProperties($) {
 GetOptions(
     "help|h" => sub { pod2usage( { -verbose => 1, -exitval => -2 } ) },
     "man|m" => sub { pod2usage( { -verbose => 2, -exitval => -2, -noperldoc => 1 } ) },
+    "warranty" => sub { banner(); license(); exit(0); },
     "verbose" => \$options{"verbose"},
     "debug" => sub { $options{"debug"} = TRUE; $options{"verbose"} = TRUE },
     "status|s" => \$options{"statusonly"},
@@ -325,6 +358,10 @@ prints a brief help message and exit status is -2.
 =item B<-m>, B<--man>
 
 prints the manual page and exit status is -2.
+
+=item B<--warranty>
+
+prints usual "no warranty" message and license information
 
 =item B<--verbose>
 

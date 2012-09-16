@@ -65,6 +65,10 @@ prints a brief help message and exit status is -2.
 
 prints the manual page and exit status is -2.
 
+=item B<--warranty>
+
+prints usual "no warranty" message and license information
+
 =item B<--verbose>
 
 prints progress messages to the standard output.
