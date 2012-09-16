@@ -1,0 +1,112 @@
+=head1 NAME
+
+svn-clean-mergeinfo.pl
+
+=head1 DESCRIPTION
+
+Command line tool to consolidate C<svn:mergeinfo> properties to the root branch
+node (C</trunk/> or C</branches/X.Y/>) and clean safely properties set on
+sub-folders in a working copy tree.
+
+=head1 SYNOPSIS
+
+=over
+
+=item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite]>
+
+consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
+node. If the option C<--nowrite> is enabled, consolidated properties are not
+written to the working but only reported as a summary.
+
+
+=item C<svn-clean-mergeinfo.pl --status>
+
+prints a summary of C<svn:mergeinfo> properties content as numbers of merged
+revisions for each branch.
+
+=back
+
+=head1 OPERATION
+
+First it parses C<svn:mergeinfo> and scans for branch/revisions on non-root
+folders.
+
+If a revision is already included at the root node level, it is discarded from
+sub-folders.
+
+If a revision only modifies files included in the scan sub-folder, it is discarded from the sub-folder and appended at root level.
+
+In some cases, a branch name is non consistent with the current node name, so
+it is left as-is for a manual check if the revision content was partially
+merged or not.
+
+After the operation and without C<--nowrite> option, the working copy
+C<svn:mergeinfo> are modified so that you can inspect the result before a
+commit. If the svn:mergeinfo property is empty, it is planned for removal.
+
+This script does not trigger a Subversion commit to the repository. That
+operation is under your responsability after manual checks and validations.
+
+It finally reports a summary of C<svn:mergeinfo> properties content as numbers
+of merged revisions for each branch.
+
+
+
+
+=head1 OPTIONS
+
+=over
+
+=item B<-h>, B<--help>
+
+prints a brief help message and exit status is -2.
+
+=item B<-m>, B<--man>
+
+prints the manual page and exit status is -2.
+
+=item B<--verbose>
+
+prints progress messages to the standard output.
+
+=item B<--debug>
+
+prints debug messages to the standard output.
+
+=item B<--nowrite>, B<-n>
+
+disables C<svn propset> operations of consolidated C<svn:mergeinfo> properties.
+
+=item B<--status>, B<-s>
+
+only reports a summary of the current working copy C<svn:mergeinfo> properties.
+
+=back
+
+=head1 BUGS AND KNOWN LIMITATIONS
+
+=over
+
+=item *
+
+Does not support any file name in working copy containing " - ".
+
+=item *
+
+Does not support non-inheritable merged revision, marked with a star.
+
+=back
+
+=head1 TODO
+
+=over
+
+=item *
+
+Test with non-standard repository structure.
+
+=item *
+
+Prompt for removal of a non-existing origin branch path.
+
+=back
