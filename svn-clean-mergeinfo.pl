@@ -408,3 +408,12 @@ Test with non-standard repository structure.
 Prompt for removal of a non-existing origin branch path.
 
 =back
+
+=head1 COPYRIGHT
+
+Copyright (C) 2012  Yves Martin
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions
+
+=cut
