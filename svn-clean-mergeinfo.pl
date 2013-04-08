@@ -111,6 +111,8 @@ sub parseMergeInfo() {
             }
             
             my ($node, $branch, $revlist) = ($line =~ /^(\S+) - (.*):(.*)$/);
+            # Convert path separator on windows platform
+            $node =~ s!\\!/!g;
             $lastNode = $node;
             $lastNodeMerges = {};
             $lastNodeMerges->{$branch} = parseRevisionList($revlist);
