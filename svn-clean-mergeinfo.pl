@@ -140,25 +140,41 @@ sub parseMergeInfo() {
 sub checkRevisionPath($$) {
     my $branchPath = shift;
     my $revision = shift;
+    my $result = TRUE;
 
     # Remove ending /
     $branchPath = substr($branchPath, 1, length($branchPath) - 1);
 
+    my $svnroot = undef;
+    open(INFO, "svn info |")
+        or die "Cannot run svn info $!";
+    while(my $output = <INFO>) {
+        if ($output =~ /Repository Root/) {
+            ($svnroot) = ($output =~ /Repository Root: (.*)/);
+            last;
+        }
+    }
+    close(INFO);
+    if (!defined($svnroot)) {
+        die "Fail to get working copy Repository Root";
+    }
+
     print "Parse diff for revision $revision\n" if $options{"debug"};
 
-    open(DIFF, "svn diff -c $revision ^/ |")
+    open(DIFF, "svn diff -c $revision --summarize ^/ |")
         or die "Cannot run svn diff $!";
 
     while(my $line = <DIFF>) {
-        if ($line =~ /^Index: /) {
-            if ($line !~ /^Index: $branchPath/) {
+        if ($line =~ /^[AMDR]/) {
+            if ($line !~ /^[AMDR]\s+$svnroot\/$branchPath/) {
                 print "Revision $revision contains file out of $branchPath : $line" if $options{"verbose"};
-                return FALSE;
+                $result = FALSE;
+                last;
             }
         }
     }
     close(DIFF);
-    return TRUE;
+    return $result;
 }
 
 # Apply checks and clean svn:mergeinfo from revisions
@@ -312,7 +328,7 @@ sub-folders in a working copy tree.
 
 consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
 node. If the option C<--nowrite> is enabled, consolidated properties are not
-written to the working but only reported as a summary.
+written to the working copy but only reported as a summary.
 
 
 =item C<svn-clean-mergeinfo.pl --status>
@@ -323,6 +339,8 @@ revisions for each branch.
 =back
 
 =head1 OPERATION
+
+This script must be invoked from a Subversion working copy directory, usually a checkout of /trunk or of a branch.
 
 First it parses C<svn:mergeinfo> and scans for branch/revisions on non-root
 folders.
@@ -363,7 +381,7 @@ prints the manual page and exit status is -2.
 
 =item B<--warranty>
 
-prints usual "no warranty" message and license information
+prints usual "no warranty" message and license information.
 
 =item B<--verbose>
 
