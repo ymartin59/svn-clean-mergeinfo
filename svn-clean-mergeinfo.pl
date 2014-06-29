@@ -3,7 +3,7 @@
 ## svn-clean-mergeinfo.pl is a command line tool to consolidate Subversion
 ## svn:mergeinfo properties on a working copy.
 
-## Copyright (C) 2012  Yves Martin  ( ymartin59 _at_ free _dot_ fr )
+## Copyright (C) 2012,2014  Yves Martin  ( ymartin1040 _at_ gmail _dot_ com )
 
 # Here are license details
 sub license() {
@@ -24,7 +24,7 @@ EOF
 
 sub banner() {
     print <<EOF;
- Copyright (C) 2012  Yves Martin
+ Copyright (C) 2012,2014  Yves Martin
  This program comes with ABSOLUTELY NO WARRANTY.
  This is free software, and you are welcome to redistribute it
  under certain conditions. See LICENSE file for details.
@@ -100,7 +100,7 @@ sub parseMergeInfo() {
 
     print "Parsing svn:mergeinfo...\n" if $options{"verbose"};
 
-    open(MERGEINFO, "svn propget svn:mergeinfo --depth=infinity |")
+    open(MERGEINFO, "svn propget svn:mergeinfo --depth=infinity " . join(" ", @ARGV) . " |")
         or die "Cannot run svn propget $!";
 
     while(my $line = <MERGEINFO>) {
@@ -324,17 +324,18 @@ sub-folders in a working copy tree.
 
 =over
 
-=item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite]>
+=item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite] [path ...]>
 
 consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
 node. If the option C<--nowrite> is enabled, consolidated properties are not
 written to the working copy but only reported as a summary.
+If one or more path are given as parameters, only consolidate this subset.
 
-
-=item C<svn-clean-mergeinfo.pl --status>
+=item C<svn-clean-mergeinfo.pl --status [path ...]>
 
 prints a summary of C<svn:mergeinfo> properties content as numbers of merged
-revisions for each branch.
+revisions for each branch. If one or more path are given as parameters, reports
+only information for this subset.
 
 =back
 
@@ -343,7 +344,7 @@ revisions for each branch.
 This script must be invoked from a Subversion working copy directory, usually a checkout of /trunk or of a branch.
 
 First it parses C<svn:mergeinfo> and scans for branch/revisions on non-root
-folders.
+folders, eventually limited to paths given as arguments.
 
 If a revision is already included at the root node level, it is discarded from
 sub-folders.
@@ -356,7 +357,7 @@ merged or not.
 
 After the operation and without C<--nowrite> option, the working copy
 C<svn:mergeinfo> are modified so that you can inspect the result before a
-commit. If the svn:mergeinfo property is empty, it is planned for removal.
+commit. If the C<svn:mergeinfo> property is empty, it is planned for removal.
 
 This script does not trigger a Subversion commit to the repository. That
 operation is under your responsability after manual checks and validations.
