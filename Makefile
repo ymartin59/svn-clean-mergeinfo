@@ -70,6 +70,16 @@ testincorrectbranch:
 	(cd $(TESTWC)/trunk; svn update; svn propset "svn:mergeinfo" "/branches/Br1/firstafter: 4" first)
 	svn commit -m "Create mergeinfo on trunk/first" $(TESTWC)/trunk
 
+testlocalcopy:
+	(cd $(TESTWC)/branches/Br1; svn copy ^/trunk/first firstbis)
+	svn commit -m "Branch /trunk/first as /branches/Br1/firstbis" $(TESTWC)/branches/Br1
+
+testmergelocalcopy:
+	(cd $(TESTWC)/branches/Br1; svn update; svn merge ^/trunk/first firstbis)
+	svn commit -m "Merge /trunk/first to /branches/Br1/firstbis" $(TESTWC)/branches/Br1
+	(cd $(TESTWC)/branches/Br1; $(PWD)/svn-clean-mergeinfo.pl --debug)
+	(cd $(TESTWC)/branches/Br1; $(PWD)/svn-clean-mergeinfo.pl --verbose --status)
+
 consolidate:
 	(cd $(TESTWC)/trunk; $(PWD)/svn-clean-mergeinfo.pl --debug)
 
@@ -96,3 +106,5 @@ testKO4: testdata testdatabis testmergeBimmediates operate
 testKO5: testdata testdatabis testmergeBfiles operate
 
 testKO6: testdata testmergeOK testincorrectbranch operate
+
+testOKnonrootbranch: testdata testlocalcopy testdatabis testmergelocalcopy

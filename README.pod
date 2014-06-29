@@ -1,3 +1,5 @@
+=pod
+
 =head1 NAME
 
 svn-clean-mergeinfo.pl
@@ -12,39 +14,53 @@ sub-folders in a working copy tree.
 
 =over
 
-=item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite]>
+=item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite] [path ...]>
 
 consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
-node. If the option C<--nowrite> is enabled, consolidated properties are not
-written to the working copy but only reported as a summary.
+node. 
 
+If the option C<--nowrite> is enabled, consolidated properties are not written
+to the working copy but only reported as a summary.  If one or more path are
+given as parameters, only consolidate this subset.
 
-=item C<svn-clean-mergeinfo.pl --status>
+When the option C<--nowrite> is not set, C<svn:mergeinfo> properties are
+persist in the current working copy every 500 checked revisions. This threshold
+can be tuned with C<--checkpoint> option. A value of 0 means no intermediate
+write will occur.
+
+=item C<svn-clean-mergeinfo.pl --status [path ...]>
 
 prints a summary of C<svn:mergeinfo> properties content as numbers of merged
-revisions for each branch.
+revisions for each branch. If one or more path are given as parameters, reports
+only information for this subset.
 
 =back
 
 =head1 OPERATION
 
-This script must be invoked from a Subversion working copy directory, usually a checkout of /trunk or of a branch.
+This script must be invoked from a Subversion working copy directory, usually a
+checkout of /trunk or of a branch.
 
 First it parses C<svn:mergeinfo> and scans for branch/revisions on non-root
-folders.
+folders, eventually limited to paths given as arguments.
 
 If a revision is already included at the root node level, it is discarded from
 sub-folders.
 
-If a revision only modifies files included in the scan sub-folder, it is discarded from the sub-folder and appended at root level.
+If a revision only modifies files included in the scan sub-folder, it is
+discarded from the sub-folder and appended at root level.
 
 In some cases, a branch name is non consistent with the current node name, so
 it is left as-is for a manual check if the revision content was partially
 merged or not.
 
-After the operation and without C<--nowrite> option, the working copy
-C<svn:mergeinfo> are modified so that you can inspect the result before a
-commit. If the svn:mergeinfo property is empty, it is planned for removal.
+Without C<--nowrite> option, every 500 revisions (defined by checkpoint) and
+after operation is completed, the working copy C<svn:mergeinfo> are modified so
+that you can inspect the result before a commit. If the C<svn:mergeinfo>
+property is empty, it is planned for removal.
+
+In addition, the C<--prunebranches> option discards non-live branches from
+C<svn:mergeinfo> properties to keep them compact after long history.
 
 This script does not trigger a Subversion commit to the repository. That
 operation is under your responsability after manual checks and validations.
@@ -79,9 +95,19 @@ prints progress messages to the standard output.
 
 prints debug messages to the standard output.
 
+=item B<--prunebranches>, B<-p>
+
+discards no longer live branches from C<svn:mergeinfo>. A test for paths on
+repository HEAD is done.
+
 =item B<--nowrite>, B<-n>
 
 disables C<svn propset> operations of consolidated C<svn:mergeinfo> properties.
+
+=item B<--checkpoint>, B<-c> afterRevisions
+
+change write threshold which defaults to 500 analyzed revisions. 0 means the
+script no longer partially update working copy as checkpoint.
 
 =item B<--status>, B<-s>
 
@@ -123,3 +149,5 @@ Copyright (C) 2012  Yves Martin
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it
 under certain conditions
+
+=cut

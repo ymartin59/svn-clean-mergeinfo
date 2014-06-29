@@ -41,6 +41,7 @@ use Getopt::Long; Getopt::Long::Configure("bundling", "nodebug");
 ##  Constants
 use constant FALSE => 0;
 use constant TRUE => 1;
+use constant REVCOUNT => "REVCOUNT";
 my $ROOTNODE = ".";
 
 ## Hash to store option values from command line parsing
@@ -48,6 +49,8 @@ my %options =
     ( "verbose" => FALSE,
       "debug" => FALSE,
       "statusonly" => FALSE,
+      "checkpoint" => 500,
+      "prunebranches" => FALSE,
       "nowrite" => FALSE,
     );
 
@@ -79,6 +82,7 @@ sub parseRevisionList($) {
 sub dumpMergeInfoNodes($) {
     my %mergeinfonodes = %{$_[0]};
     foreach my $node (sort(keys %mergeinfonodes)) {
+        next if ($node =~ /^REVCOUNT$/);  # skip technical node revisions counter
         print "Node $node\n";
         my $nodeMerges = $mergeinfonodes{$node};
         foreach my $branch (sort(keys %$nodeMerges)) {
@@ -93,6 +97,9 @@ sub dumpMergeInfoNodes($) {
 #  { Node -> \{ Branch -> \( Revision List ) } }
 sub parseMergeInfo() {
     my %mergeinfonodes = ();
+
+    # Ugly technical node to track revisions count
+    $mergeinfonodes{REVCOUNT} = 0;
     
     # Parsing state variable
     my $lastNode = undef;
@@ -116,14 +123,16 @@ sub parseMergeInfo() {
             $lastNode = $node;
             $lastNodeMerges = {};
             $lastNodeMerges->{$branch} = parseRevisionList($revlist);
+            $mergeinfonodes{REVCOUNT} += scalar(@{$lastNodeMerges->{$branch}});
             print "Node $node : from $branch revisions $revlist\n" if $options{"debug"};
             
         } elsif ($line =~ /:/) {
             my ($branch, $revlist) = ($line =~ /(.*):(.*)$/);
             $lastNodeMerges->{$branch} = parseRevisionList($revlist);
+            $mergeinfonodes{REVCOUNT} += scalar(@{$lastNodeMerges->{$branch}});
             print "             from $branch revisions $revlist\n" if $options{"debug"};
         } else {
-            print "Unexpected line from propget svn:mergeinfo $line\n";
+            print "! Unexpected line from propget svn:mergeinfo $line\n";
         }
     }
     if (defined($lastNode)) {
@@ -136,15 +145,8 @@ sub parseMergeInfo() {
     return %mergeinfonodes;
 }
 
-# Check file modified by a revision are all included in branchPath
-sub checkRevisionPath($$) {
-    my $branchPath = shift;
-    my $revision = shift;
-    my $result = TRUE;
-
-    # Remove ending /
-    $branchPath = substr($branchPath, 1, length($branchPath) - 1);
-
+# Get working copy Repository Root
+sub getRepositoryRoot() {
     my $svnroot = undef;
     open(INFO, "svn info |")
         or die "Cannot run svn info $!";
@@ -158,6 +160,18 @@ sub checkRevisionPath($$) {
     if (!defined($svnroot)) {
         die "Fail to get working copy Repository Root";
     }
+    return $svnroot;
+}
+
+# Check file modified by a revision are all included in branchPath
+sub checkRevisionPath($$$) {
+    my $svnroot = shift;
+    my $branchPath = shift;
+    my $revision = shift;
+    my $result = TRUE;
+
+    # Remove ending /
+    $branchPath = substr($branchPath, 1, length($branchPath) - 1);
 
     print "Parse diff for revision $revision\n" if $options{"debug"};
 
@@ -177,36 +191,96 @@ sub checkRevisionPath($$) {
     return $result;
 }
 
+# Test if a repository path still exists in HEAD, typically a branch
+sub existsRepositoryPath($$) {
+    my $svnroot = shift;
+    my $branchPath = shift;
+    my $result = TRUE;
+
+    print "Test repository path $branchPath\n" if $options{"debug"};
+
+    open(SVNLS, "svn ls $svnroot\/$branchPath 2>&1 |")
+        or die "Cannot run svn ls $!";
+
+    while (my $line = <SVNLS>) {
+        print "svn ls $branchPath content:  $line\n" if $options{"debug"};
+        if ($line =~ /^svn: E200009: Could not list all targets/) {
+            $result = FALSE;
+        }
+    }
+    close(SVNLS);
+    return $result;
+}
+
 # Apply checks and clean svn:mergeinfo from revisions
 # already included in root directory.
 sub consolidate($) {
     my $mergeinfonodes = shift;
+    my $progressCounter = 0;
 
     my $rootMerges = $mergeinfonodes->{$ROOTNODE};
     if (!exists($mergeinfonodes->{$ROOTNODE})) {
         $rootMerges = {};
     }
 
+    my $svnRoot = getRepositoryRoot();
+
     foreach my $node (sort(keys %{$mergeinfonodes})) {
+        next if ($node =~ /^REVCOUNT$/);  # skip technical node revisions counter
         next if ($node =~ /^.$/);
         my $nodeMerges = $mergeinfonodes->{$node};
         foreach my $branch (sort(keys %$nodeMerges)) {
 
-            my $noPathCheck = FALSE;
-            if ($branch !~ /$node$/) {
-                print "Unexpected $branch in mergeinfo on node $node\n";
+            my ($noPathCheck, $warning, $rootBranch) = (FALSE, "", undef);
+
+            if ($branch =~ /$node$/) {
+                $rootBranch = substr($branch, 0, length($branch) - length($node) - 1);
+            }
+            elsif ($branch =~ /^[\\\/](?:trunk|(?:(?:tags|branches)[\\\/][^\\\/]+))[\\\/]/ ) {
+                ($rootBranch) = $branch =~ /^([\\\/](?:trunk|(?:(?:tags|branches)[\\\/][^\\\/]+)))[\\\/]/;
+                $warning = "  ! Unexpected $branch in mergeinfo on node $node - Use root branch: $rootBranch\n";
+            }
+            else {
+                $warning = "  ! Unexpected $branch in mergeinfo on node $node\n";
                 $noPathCheck = TRUE;
                 next;
             }
-            # Extract root branch without trailing /
-            my $rootBranch = substr($branch, 0, length($branch) - length($node) - 1);
-            print "\nNode $node, consolidate $branch on $rootBranch\n";
+
+            print "\nNode $node, consolidate $branch on $rootBranch\n" . $warning;
+
+            if ($options{"prunebranches"}) {
+                if (!existsRepositoryPath($svnRoot, $branch)) {
+                    delete($nodeMerges->{$branch});
+                    print "  ! Remove reference to no longer available branch $branch in repository HEAD $svnRoot\n";
+                    next;
+                }
+            }
 
             my @revList = @{$nodeMerges->{$branch}};
             next if (!exists($nodeMerges->{$branch}) || (@revList < 1));
 
             my @remainingRevList = ();
-            foreach my $rev (@revList) {
+            while (scalar(@revList) > 0) {
+
+                $progressCounter++;
+                if ($options{"checkpoint"} != 0
+                    && ($progressCounter % $options{"checkpoint"}) == 0) {
+
+                    if (!$options{"nowrite"}) {
+                        # Intermediate write back to working copy
+                        $nodeMerges->{$branch} = \( @remainingRevList, @revList );
+                        writeProperties($mergeinfonodes);
+                    }
+
+                    printf("... %d revisions processed over %d (%.1f)%%\n\n",
+                           $progressCounter,
+                           $mergeinfonodes->{REVCOUNT},
+                           100*$progressCounter/$mergeinfonodes->{REVCOUNT}
+                        );
+                }
+
+                my $rev = shift(@revList);
+
                 # Test revision if already included in root svn:mergeinfo
                 if (exists($rootMerges->{$rootBranch})
                     && grep {$_ eq $rev} (@{$rootMerges->{$rootBranch}})) {
@@ -216,7 +290,7 @@ sub consolidate($) {
                 # Test if revision is limited to node path
                 if (!$noPathCheck
                     && $rev !~ /\*$/
-                    && checkRevisionPath($rootBranch, $rev)) {
+                    && checkRevisionPath($svnRoot, $rootBranch, $rev)) {
                     print "  Add $rev from $rootBranch to root node\n" if $options{"verbose"};
 
                     if (!exists($rootMerges->{$rootBranch})) {
@@ -224,19 +298,19 @@ sub consolidate($) {
                         $rootMerges->{$rootBranch} = [];
                     }
                     push(@{$rootMerges->{$rootBranch}}, $rev);
-                    next;
                 }
-                push(@remainingRevList, $rev);
+                else {
+                    push(@remainingRevList, $rev);
+                }
             }
 
             if (!@remainingRevList) {
                 print "  Branch $branch empty\n" if $options{"verbose"};
                 delete($nodeMerges->{$branch});
-                next;
+            } else {
+                $nodeMerges->{$branch} = \@remainingRevList;
+                print "  Branch $branch : " . scalar(@{$nodeMerges->{$branch}}) . " revisions\n";
             }
-
-            $nodeMerges->{$branch} = \@remainingRevList;
-            print "  Branch $branch : " . @{$nodeMerges->{$branch}} . " revisions\n";
         }
     }
 
@@ -249,6 +323,7 @@ sub consolidate($) {
 sub writeProperties($) {
     my %mergeinfonodes = %{$_[0]};
     foreach my $node (sort(keys %mergeinfonodes)) {
+        next if ($node =~ /^REVCOUNT$/);  # skip technical node revisions counter
         my $nodeMerges = $mergeinfonodes{$node};
 
 
@@ -258,12 +333,12 @@ sub writeProperties($) {
             next;
         }
 
-        print "Write svn:mergeinfo property for node $node\n";
+        print "Write svn:mergeinfo property for node $node\n" if $options{"verbose"};
         my $mergeinfo = File::Temp->new();
         $mergeinfo->unlink_on_destroy(1);
 
         foreach my $branch (sort(keys %$nodeMerges)) {
-            print "  Branch $branch : " . @{$nodeMerges->{$branch}} . " revision\n";
+            print "  Branch $branch : " . @{$nodeMerges->{$branch}} . " revision\n" if $options{"verbose"};
             # TODO improve with revision list compaction. No need, svn does it well
             print $mergeinfo $branch . ":" .
                 join(",", @{$nodeMerges->{$branch}}) . "\n";
@@ -275,6 +350,7 @@ sub writeProperties($) {
         print "Set svn:mergeinfo on node $node\n" if $options{"debug"};
         `svn propset svn:mergeinfo -F $filename $node`;
     }
+    print "... " . scalar(keys %mergeinfonodes) . " svn:mergeinfo properties written to working copy\n";
 }
 
 
@@ -287,6 +363,8 @@ GetOptions(
     "debug" => sub { $options{"debug"} = TRUE; $options{"verbose"} = TRUE },
     "status|s" => \$options{"statusonly"},
     "nowrite|n" => \$options{"nowrite"},
+    "checkpoint|c=i" => \$options{"checkpoint"},
+    "prunebranches|p" => \$options{"prunebranches"},
     )
     or pod2usage({ -verbose => 0, -exitval => -1 });
 
@@ -327,9 +405,16 @@ sub-folders in a working copy tree.
 =item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite] [path ...]>
 
 consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
-node. If the option C<--nowrite> is enabled, consolidated properties are not
-written to the working copy but only reported as a summary.
-If one or more path are given as parameters, only consolidate this subset.
+node. 
+
+If the option C<--nowrite> is enabled, consolidated properties are not written
+to the working copy but only reported as a summary.  If one or more path are
+given as parameters, only consolidate this subset.
+
+When the option C<--nowrite> is not set, C<svn:mergeinfo> properties are
+persist in the current working copy every 500 checked revisions. This threshold
+can be tuned with C<--checkpoint> option. A value of 0 means no intermediate
+write will occur.
 
 =item C<svn-clean-mergeinfo.pl --status [path ...]>
 
@@ -341,7 +426,8 @@ only information for this subset.
 
 =head1 OPERATION
 
-This script must be invoked from a Subversion working copy directory, usually a checkout of /trunk or of a branch.
+This script must be invoked from a Subversion working copy directory, usually a
+checkout of /trunk or of a branch.
 
 First it parses C<svn:mergeinfo> and scans for branch/revisions on non-root
 folders, eventually limited to paths given as arguments.
@@ -349,15 +435,20 @@ folders, eventually limited to paths given as arguments.
 If a revision is already included at the root node level, it is discarded from
 sub-folders.
 
-If a revision only modifies files included in the scan sub-folder, it is discarded from the sub-folder and appended at root level.
+If a revision only modifies files included in the scan sub-folder, it is
+discarded from the sub-folder and appended at root level.
 
 In some cases, a branch name is non consistent with the current node name, so
 it is left as-is for a manual check if the revision content was partially
 merged or not.
 
-After the operation and without C<--nowrite> option, the working copy
-C<svn:mergeinfo> are modified so that you can inspect the result before a
-commit. If the C<svn:mergeinfo> property is empty, it is planned for removal.
+Without C<--nowrite> option, every 500 revisions (defined by checkpoint) and
+after operation is completed, the working copy C<svn:mergeinfo> are modified so
+that you can inspect the result before a commit. If the C<svn:mergeinfo>
+property is empty, it is planned for removal.
+
+In addition, the C<--prunebranches> option discards non-live branches from
+C<svn:mergeinfo> properties to keep them compact after long history.
 
 This script does not trigger a Subversion commit to the repository. That
 operation is under your responsability after manual checks and validations.
@@ -392,9 +483,19 @@ prints progress messages to the standard output.
 
 prints debug messages to the standard output.
 
+=item B<--prunebranches>, B<-p>
+
+discards no longer live branches from C<svn:mergeinfo>. A test for paths on
+repository HEAD is done.
+
 =item B<--nowrite>, B<-n>
 
 disables C<svn propset> operations of consolidated C<svn:mergeinfo> properties.
+
+=item B<--checkpoint>, B<-c> afterRevisions
+
+change write threshold which defaults to 500 analyzed revisions. 0 means the
+script no longer partially update working copy as checkpoint.
 
 =item B<--status>, B<-s>
 
