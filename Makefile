@@ -108,3 +108,7 @@ testKO5: testdata testdatabis testmergeBfiles operate
 testKO6: testdata testmergeOK testincorrectbranch operate
 
 testOKnonrootbranch: testdata testlocalcopy testdatabis testmergelocalcopy
+
+testprune: testdata testmergeOK testincorrectbranch
+	(cd $(TESTWC)/trunk; $(PWD)/svn-clean-mergeinfo.pl --debug --prunebranches)
+	(cd $(TESTWC)/trunk; $(PWD)/svn-clean-mergeinfo.pl --verbose --status)
