@@ -227,7 +227,7 @@ sub consolidate($) {
 
     foreach my $node (sort(keys %{$mergeinfonodes})) {
         next if ($node =~ /^REVCOUNT$/);  # skip technical node revisions counter
-        next if ($node =~ /^.$/);
+        next if ($node =~ /^\.$/);
         my $nodeMerges = $mergeinfonodes->{$node};
         foreach my $branch (sort(keys %$nodeMerges)) {
 
