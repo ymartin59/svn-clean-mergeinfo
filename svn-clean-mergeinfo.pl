@@ -180,7 +180,7 @@ sub checkRevisionPath($$$) {
 
     while(my $line = <DIFF>) {
         if ($line =~ /^[AMDR]/) {
-            if ($line !~ /^[AMDR]\s+$svnroot\/$branchPath/) {
+            if ($line !~ /^[AMDR]\s+\Q$svnroot\E\/\Q$branchPath\E/) {
                 print "Revision $revision contains file out of $branchPath : $line" if $options{"verbose"};
                 $result = FALSE;
                 last;
@@ -233,7 +233,7 @@ sub consolidate($) {
 
             my ($noPathCheck, $warning, $rootBranch) = (FALSE, "", undef);
 
-            if ($branch =~ /$node$/) {
+            if ($branch =~ /\Q$node\E$/) {
                 $rootBranch = substr($branch, 0, length($branch) - length($node) - 1);
             }
             elsif ($branch =~ /^[\\\/](?:trunk|(?:(?:tags|branches)[\\\/][^\\\/]+))[\\\/]/ ) {
