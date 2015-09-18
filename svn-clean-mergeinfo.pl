@@ -3,7 +3,7 @@
 ## svn-clean-mergeinfo.pl is a command line tool to consolidate Subversion
 ## svn:mergeinfo properties on a working copy.
 
-## Copyright (C) 2012,2014  Yves Martin  ( ymartin1040 _at_ gmail _dot_ com )
+## Copyright (C) 2012-2015  Yves Martin  ( ymartin1040 _at_ gmail _dot_ com )
 
 # Here are license details
 sub license() {
@@ -24,7 +24,7 @@ EOF
 
 sub banner() {
     print <<EOF;
- Copyright (C) 2012,2014  Yves Martin
+ Copyright (C) 2012-2015  Yves Martin
  This program comes with ABSOLUTELY NO WARRANTY.
  This is free software, and you are welcome to redistribute it
  under certain conditions. See LICENSE file for details.
@@ -49,7 +49,7 @@ my %options =
     ( "verbose" => FALSE,
       "debug" => FALSE,
       "statusonly" => FALSE,
-      "checkpoint" => 500,
+      "checkpoint" => 100,
       "prunebranches" => FALSE,
       "nowrite" => FALSE,
     );
@@ -88,7 +88,6 @@ sub dumpMergeInfoNodes($) {
         foreach my $branch (sort(keys %$nodeMerges)) {
             print "  Branch $branch : " . @{$nodeMerges->{$branch}} . " revisions\n";
             #print "  Branch $branch : " . join(" ", @{$nodeMerges->{$branch}}) . "\n";
-            #print "  Branch $branch : " . buildRevisionList(@{$nodeMerges->{$branch}}) . "\n";
         }
     }
 }
@@ -163,32 +162,33 @@ sub getRepositoryRoot() {
     return $svnroot;
 }
 
-# Check file modified by a revision are all included in branchPath
-sub checkRevisionPath($$$) {
+# Check file modified by a revision are all included each branchPath from a list
+# Return only full matching branch paths
+sub checkRevisionPath($$@) {
     my $svnroot = shift;
-    my $branchPath = shift;
     my $revision = shift;
-    my $result = TRUE;
+    my @branchesPath = shift;
 
-    # Remove ending /
-    $branchPath = substr($branchPath, 1, length($branchPath) - 1);
-
-    print "Parse diff for revision $revision\n" if $options{"debug"};
+    print "Parse diff for revision $revision and " . join(" ", @branchesPath) . "\n" if $options{"verbose"};
 
     open(DIFF, "svn diff -c $revision --summarize ^/ |")
         or die "Cannot run svn diff $!";
 
     while(my $line = <DIFF>) {
         if ($line =~ /^[AMDR]/) {
-            if ($line !~ /^[AMDR]\s+\Q$svnroot\E\/\Q$branchPath\E/) {
-                print "Revision $revision contains file out of $branchPath : $line" if $options{"verbose"};
-                $result = FALSE;
-                last;
+            my $index = 0;
+            while ($index < scalar(@branchesPath)) {
+                my $aBranch = $branchesPath[$index];
+                if ($line !~ /^[AMDR]\s+\Q$svnroot\E\/\Q$aBranch\E/) {
+                    print "  Revision $revision contains file out of $aBranch : $line" if $options{"verbose"};
+                    splice(@branchesPath, $index, 1);
+                }
+                $index++;
             }
         }
     }
     close(DIFF);
-    return $result;
+    return @branchesPath;
 }
 
 # Test if a repository path still exists in HEAD, typically a branch
@@ -212,10 +212,27 @@ sub existsRepositoryPath($$) {
     return $result;
 }
 
-# Apply checks and clean svn:mergeinfo from revisions
+# Extract root branch for node
+sub getRootBranch($$) {
+    my $node = shift;
+    my $branch = shift;
+    my ($noPathCheck, $warning, $rootBranch) = (FALSE, "", undef);
+
+    if ($branch =~ /\Q$node\E$/) {
+        $rootBranch = substr($branch, 0, length($branch) - length($node) - 1);
+    }
+    else {
+        $warning = "  ! Unexpected $branch in mergeinfo on node $node\n";
+        $noPathCheck = TRUE;
+    }
+    return ($noPathCheck, $warning, $rootBranch);
+}
+
+# Step 1. clean svn:mergeinfo from revisions
 # already included in root directory.
 sub consolidate($) {
     my $mergeinfonodes = shift;
+    my %revisionsNodeBranches = ();
     my $progressCounter = 0;
 
     my $rootMerges = $mergeinfonodes->{$ROOTNODE};
@@ -231,22 +248,7 @@ sub consolidate($) {
         my $nodeMerges = $mergeinfonodes->{$node};
         foreach my $branch (sort(keys %$nodeMerges)) {
 
-            my ($noPathCheck, $warning, $rootBranch) = (FALSE, "", undef);
-
-            if ($branch =~ /\Q$node\E$/) {
-                $rootBranch = substr($branch, 0, length($branch) - length($node) - 1);
-            }
-            elsif ($branch =~ /^[\\\/](?:trunk|(?:(?:tags|branches)[\\\/][^\\\/]+))[\\\/]/ ) {
-                ($rootBranch) = $branch =~ /^([\\\/](?:trunk|(?:(?:tags|branches)[\\\/][^\\\/]+)))[\\\/]/;
-                $warning = "  ! Unexpected $branch in mergeinfo on node $node - Use root branch: $rootBranch\n";
-            }
-            else {
-                $warning = "  ! Unexpected $branch in mergeinfo on node $node\n";
-                $noPathCheck = TRUE;
-                next;
-            }
-
-            print "\nNode $node, consolidate $branch on $rootBranch\n" . $warning;
+            my ($noPathCheck, $warning, $rootBranch) = getRootBranch($node, $branch);
 
             if ($options{"prunebranches"}) {
                 if (!existsRepositoryPath($svnRoot, $branch)) {
@@ -255,6 +257,10 @@ sub consolidate($) {
                     next;
                 }
             }
+
+            next if ($noPathCheck);
+
+            print "\nNode $node, consolidate $branch on $rootBranch\n" . $warning;
 
             my @revList = @{$nodeMerges->{$branch}};
             next if (!exists($nodeMerges->{$branch}) || (@revList < 1));
@@ -268,15 +274,14 @@ sub consolidate($) {
 
                     if (!$options{"nowrite"}) {
                         # Intermediate write back to working copy
-                        $nodeMerges->{$branch} = \( @remainingRevList, @revList );
+                        $nodeMerges->{$branch} = [ @remainingRevList, @revList ];
                         writeProperties($mergeinfonodes);
                     }
 
                     printf("... %d revisions processed over %d (%.1f)%%\n\n",
                            $progressCounter,
                            $mergeinfonodes->{REVCOUNT},
-                           100*$progressCounter/$mergeinfonodes->{REVCOUNT}
-                        );
+                           100 * $progressCounter / $mergeinfonodes->{REVCOUNT});
                 }
 
                 my $rev = shift(@revList);
@@ -286,21 +291,15 @@ sub consolidate($) {
                     && grep {$_ eq $rev} (@{$rootMerges->{$rootBranch}})) {
                     next;
                 }
-                
-                # Test if revision is limited to node path
-                if (!$noPathCheck
-                    && $rev !~ /\*$/
-                    && checkRevisionPath($svnRoot, $rootBranch, $rev)) {
-                    print "  Add $rev from $rootBranch to root node\n" if $options{"verbose"};
 
-                    if (!exists($rootMerges->{$rootBranch})) {
-                        # Only add branch on root node when required
-                        $rootMerges->{$rootBranch} = [];
-                    }
-                    push(@{$rootMerges->{$rootBranch}}, $rev);
-                }
-                else {
-                    push(@remainingRevList, $rev);
+                push(@remainingRevList, $rev);
+
+                if (exists($revisionsNodeBranches{$rev})) {
+                    my @nodeList = @{$revisionsNodeBranches{$rev}};
+                    push(@nodeList, $rev);
+                    $revisionsNodeBranches{$rev} = \@nodeList;
+                } else {
+                    $revisionsNodeBranches{$rev} = [ $node ];
                 }
             }
 
@@ -314,6 +313,98 @@ sub consolidate($) {
         }
     }
 
+    if (keys(%{$rootMerges}) > 0) {
+        # Only create root node when required
+        $mergeinfonodes->{$ROOTNODE} = $rootMerges;
+    }
+    return \%revisionsNodeBranches;
+}
+
+# Step 2. Loop over remaining revisions to detected changes out of merged folder
+# revisionsNodeBranches = { revision => { node list } }
+sub scanChanges($$) {
+    my $mergeinfonodes = shift;
+    my $revisionsNodeBranches = shift;
+    my $progressCounter = 0;
+    my $numberOfRevisions = scalar(keys %{$revisionsNodeBranches});
+
+    my $svnRoot = getRepositoryRoot();
+
+    my $rootMerges = $mergeinfonodes->{$ROOTNODE};
+    if (!exists($mergeinfonodes->{$ROOTNODE})) {
+        $rootMerges = {};
+    }
+
+    foreach my $revision (sort(keys %{$revisionsNodeBranches})) {
+        my $nodeList = $revisionsNodeBranches->{$revision};
+
+        next if ($revision =~ /\*$/);
+
+        # Concat all rootBranches from all nodes (compute rootBranch)
+        # Invoke checkRevisionPath($svnRoot, $revision, @allBranches);
+        # Process
+
+        my @allRootBranches = ();
+
+        foreach my $node (@$nodeList) {
+            next if ($node =~ /^\.$/);
+            my $nodeBranches = $mergeinfonodes->{$node};
+
+            ### Collect branches to invoke diff only once per revision
+
+            foreach my $branch (keys %$nodeBranches) {
+                # Remove ending / on each path
+                my $branch = substr($branch, 1, length($branch) - 1);
+
+                my ($noPathCheck, $warning, $rootBranch) = getRootBranch($node, $branch);
+                if (!$noPathCheck) {
+                    push(@allRootBranches, $rootBranch);
+                }
+            }
+        }
+
+        my @cleanBranches = checkRevisionPath($svnRoot, $revision, @allRootBranches);
+
+        foreach my $cleanBranch (@cleanBranches) {
+            foreach my $node (@{$nodeList}) {
+                next if ($node =~ /^\.$/);
+                my $nodeBranches = $mergeinfonodes->{$node};
+
+                foreach my $aBranchPath (keys %$nodeBranches) {
+                    print "  Clean $aBranchPath for branch $cleanBranch\n" if $options{"debug"};
+                    next if $aBranchPath !~ /^\/\Q$cleanBranch\E/;
+                    my @new = grep ! /^$revision$/, @{$nodeBranches->{$aBranchPath}};
+                    if (scalar(@new) == 0) {
+                        delete($nodeBranches->{$aBranchPath});
+                    } else {
+                        $nodeBranches->{$aBranchPath} = \@new;
+                    }
+                }
+            }
+            print "  Add $revision to root node $cleanBranch\n" if $options{"verbose"};
+
+            if (!exists($rootMerges->{$cleanBranch})) {
+                # Only add branch on root node when required
+                $rootMerges->{$cleanBranch} = [];
+            }
+            push(@{$rootMerges->{$cleanBranch}}, $revision);
+        }
+
+        $progressCounter++;
+        if ($options{"checkpoint"} != 0
+            && ($progressCounter % $options{"checkpoint"}) == 0) {
+
+            if (!$options{"nowrite"}) {
+                # Intermediate write back to working copy
+                writeProperties($mergeinfonodes);
+            }
+            printf("... %d revisions processed over %d (%.1f)%%\n\n",
+                   $progressCounter,
+                   $numberOfRevisions,
+                   100 * $progressCounter / $numberOfRevisions);
+        }
+
+    }
     if (keys(%{$rootMerges}) > 0) {
         # Only create root node when required
         $mergeinfonodes->{$ROOTNODE} = $rootMerges;
@@ -376,7 +467,18 @@ if ($options{"statusonly"}) {
     dumpMergeInfoNodes(\%infonodes);
 
 } else {
-    consolidate(\%infonodes);
+    my $revisionNodes = consolidate(\%infonodes);
+
+    if ($options{"debug"}) {
+        # my $dumper = YAML::Dumper->new();
+        # $dumper->indent_width(4);
+        # print $dumper->dump($revisionNodes);
+        use Data::Dumper;
+        print Dumper(\%infonodes);
+        print Dumper($revisionNodes);
+    }
+
+    scanChanges(\%infonodes, $revisionNodes);
     if (!$options{"nowrite"}) {
         writeProperties(\%infonodes);
     }
@@ -523,11 +625,7 @@ Does not support non-inheritable merged revision, marked with a star.
 
 =item *
 
-Test with non-standard repository structure.
-
-=item *
-
-Prompt for removal of a non-existing origin branch path.
+Tests with non-standard repository structure.
 
 =back
 

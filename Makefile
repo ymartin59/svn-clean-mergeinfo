@@ -38,6 +38,13 @@ createdatabis:
 	svn commit -m "Change A+B+C on branches/Br1" $(TESTWC)   # Revision 5
 	(cd $(TESTWC); svn up)
 
+createdatabr2:
+	(cd $(TESTWC); svn up)
+	svn copy $(TESTWC)/trunk $(TESTWC)/branches/Br2
+	echo "Br2/A++" >> $(TESTWC)/branches/Br2/first/A
+	svn commit -m "Change A on branches/Br2" $(TESTWC)   # Revision 7 after merge
+	(cd $(TESTWC); svn up)
+
 domergeAinfirst:
 	(cd $(TESTWC)/trunk/first; svn merge -c 4 ^/branches/Br1/first .)
 	svn commit -m "Merge A on trunk in first" $(TESTWC)
@@ -67,8 +74,14 @@ domergeBfiles:
 	svn commit -m "Merge B on trunk in first/second" $(TESTWC)
 
 domergeOK:
+	(cd $(TESTWC); svn up)
 	(cd $(TESTWC)/trunk; svn merge -c 3,4 ^/branches/Br1 .)
 	svn commit -m "Merge A+C on trunk" $(TESTWC)
+
+domergebr2:
+	(cd $(TESTWC); svn up)
+	(cd $(TESTWC)/trunk; svn merge -c 7 ^/branches/Br2 .)
+	svn commit -m "Merge A from Br2 on trunk" $(TESTWC)
 
 doincorrectbranch:
 	(cd $(TESTWC)/trunk; svn update; svn propset "svn:mergeinfo" "/branches/Br1/firstafter: 4" first)
@@ -100,7 +113,7 @@ validate:
 	svn propget "svn:mergeinfo" --depth=infinity $(TESTPATH) > $(DIST)/propget-$(TESTNAME).log
 	diff tests/propget-$(TESTNAME).log $(DIST)/propget-$(TESTNAME).log
 
-testOK: WCPATH=$(TESTWC)/trunk
+testOK%: WCPATH=$(TESTWC)/trunk
 testOK: createdata domergeOK operate
 	@$(MAKE) -f $(THIS_FILE) validate TESTNAME=$@ TESTPATH=$(WCPATH)
 
@@ -121,6 +134,12 @@ testKO5: createdata createdatabis domergeBfiles operate
 	@$(MAKE) -f $(THIS_FILE) validate TESTNAME=$@ TESTPATH=$(WCPATH)
 
 testKO6: createdata domergeOK doincorrectbranch operate
+	@$(MAKE) -f $(THIS_FILE) validate TESTNAME=$@ TESTPATH=$(WCPATH)
+
+testOKbr2: createdata createdatabis domergeOK createdatabr2 domergebr2 operate
+	@$(MAKE) -f $(THIS_FILE) validate TESTNAME=$@ TESTPATH=$(WCPATH)
+
+testKObr2: createdata createdatabis domergeAinfirst createdatabr2 domergebr2 operate
 	@$(MAKE) -f $(THIS_FILE) validate TESTNAME=$@ TESTPATH=$(WCPATH)
 
 testOKnonrootbranch: WCPATH=$(TESTWC)/branches/Br1
