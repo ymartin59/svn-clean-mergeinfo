@@ -36,7 +36,7 @@ use strict;
 use warnings;
 use File::Temp;
 use Pod::Usage;
-use Getopt::Long; Getopt::Long::Configure("bundling", "nodebug"); 
+use Getopt::Long; Getopt::Long::Configure("bundling", "nodebug");
 
 ##  Constants
 use constant FALSE => 0;
@@ -99,7 +99,7 @@ sub parseMergeInfo() {
 
     # Ugly technical node to track revisions count
     $mergeinfonodes{REVCOUNT} = 0;
-    
+
     # Parsing state variable
     my $lastNode = undef;
     my $lastNodeMerges = {};
@@ -115,7 +115,7 @@ sub parseMergeInfo() {
             if (defined($lastNode)) {
                 $mergeinfonodes{$lastNode} = $lastNodeMerges;
             }
-            
+
             my ($node, $branch, $revlist) = ($line =~ /^(\S+) - (.*):(.*)$/);
             # Convert path separator on windows platform
             $node =~ s!\\!/!g;
@@ -124,7 +124,7 @@ sub parseMergeInfo() {
             $lastNodeMerges->{$branch} = parseRevisionList($revlist);
             $mergeinfonodes{REVCOUNT} += scalar(@{$lastNodeMerges->{$branch}});
             print "Node $node : from $branch revisions $revlist\n" if $options{"debug"};
-            
+
         } elsif ($line =~ /:/) {
             my ($branch, $revlist) = ($line =~ /(.*):(.*)$/);
             $lastNodeMerges->{$branch} = parseRevisionList($revlist);
@@ -152,7 +152,6 @@ sub getRepositoryRoot() {
     while(my $output = <INFO>) {
         if ($output =~ /Repository Root/) {
             ($svnroot) = ($output =~ /Repository Root: (.*)/);
-            last;
         }
     }
     close(INFO);
@@ -507,7 +506,7 @@ sub-folders in a working copy tree.
 =item C<svn-clean-mergeinfo.pl [--debug] [--verbose] [--nowrite] [path ...]>
 
 consolidates C<svn:mergeinfo> properties in a Subversion working copy to the root
-node. 
+node.
 
 If the option C<--nowrite> is enabled, consolidated properties are not written
 to the working copy but only reported as a summary.  If one or more path are
